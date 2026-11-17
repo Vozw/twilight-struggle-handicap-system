@@ -1,0 +1,617 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Outer Space Treaty</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Michroma&family=VT323&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+
+<!--
+  Outer Space Treaty: a handicap builder for teaching Twilight Struggle.
+
+  The experienced player (the "veteran") plays under restrictions. The newer
+  player picks which restrictions to lift. Each lifted restriction adds
+  Altitude, the difficulty score. Beat the veteran at a given Altitude, then
+  try a higher one.
+
+  Everything is in this one file:
+    1. CSS: a mission-control console over a starfield (dark theme only).
+    2. HTML: empty containers that the script fills in.
+    3. Script, in order:
+         CONFIG   who is who, and which notes to show (edition-specific)
+         PRICES   what each clause costs in Altitude
+         text     the rules, written with the names from CONFIG
+         state    the current build and the game log, saved in localStorage
+         render   one function per panel
+    4. A separate script that draws the starfield.
+-->
+
+<style>
+/* ---------- Palette and base ---------- */
+:root{
+  --void:#05080F; --panel:#0C1424; --panel-2:#111C30; --line:#22324D; --line-2:#2F4466;
+  --ink:#E4EAF4; --muted:#8293AD; --dim:#566582; --body:#C9D3E3;
+  --amber:#FFB547; --amber-glow:rgba(255,181,71,.35);
+  --cyan:#62D6EA; --cyan-soft:rgba(98,214,234,.12);
+  --red:#FF6A55; --green:#7BE0A0; --us:#7FB2F0; --ussr:#FF7E6B;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{background:var(--void)}
+body{color:var(--ink);font-family:"IBM Plex Sans",system-ui,sans-serif;font-size:16px;line-height:1.55;margin:0}
+#sky{position:fixed;inset:0;width:100%;height:100%;z-index:0;pointer-events:none}
+.wrap{position:relative;z-index:1;max-width:1100px;margin:0 auto;padding-inline:20px;padding-block:32px 64px;display:flex;flex-direction:column;gap:30px}
+h1,h2,h3{margin:0;text-wrap:balance}
+h2,h3{font-family:"Michroma",Arial,sans-serif;font-weight:400;letter-spacing:.06em;text-transform:uppercase}
+.eyebrow{font:500 12px "IBM Plex Mono",ui-monospace,monospace;letter-spacing:.18em;text-transform:uppercase;color:var(--muted)}
+button:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+
+/* ---------- Header ---------- */
+header{display:grid;gap:12px}
+header h1{font:400 clamp(30px,6vw,60px)/1.05 "Michroma",Arial,sans-serif;letter-spacing:.08em;text-transform:uppercase;text-shadow:0 0 24px rgba(98,214,234,.25)}
+header p{max-width:64ch;margin:0;color:var(--muted);font-size:17px}
+
+/* ---------- Shared console panel ---------- */
+.console{background:linear-gradient(180deg,var(--panel-2),var(--panel));border:1px solid var(--line);border-radius:6px;box-shadow:inset 0 1px 0 rgba(255,255,255,.04),0 10px 40px rgba(0,0,0,.45)}
+
+/* ---------- Altimeter ---------- */
+.alt{display:grid;grid-template-columns:auto 1fr;gap:16px 30px;align-items:center;padding:20px 24px;position:relative;overflow:hidden}
+.alt::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(255,255,255,.025) 0 1px,transparent 1px 3px);pointer-events:none}
+.readout{display:flex;flex-direction:column;align-items:flex-start}
+.readout .lbl{font:500 11px "IBM Plex Mono",monospace;letter-spacing:.2em;color:var(--muted);margin-bottom:8px}
+.readout .num{font:400 92px/.85 "VT323",monospace;color:var(--amber);text-shadow:0 0 18px var(--amber-glow)}
+.readout .of{font:400 22px "VT323",monospace;color:var(--dim)}
+.track{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:6px}
+.box{border:1px solid var(--line-2);border-radius:3px;padding:7px 6px 6px;min-height:62px;display:flex;flex-direction:column;justify-content:space-between;gap:4px;background:rgba(5,8,15,.5);position:relative}
+.box .bn{font:400 18px/1 "VT323",monospace;color:var(--dim)}
+.box .bt{font:500 10.5px/1.25 "IBM Plex Mono",monospace;letter-spacing:.04em;color:var(--dim);text-transform:uppercase}
+.box .ba{font:400 15px/1 "VT323",monospace;color:var(--dim)}
+.box.lit{border-color:var(--amber);background:rgba(255,181,71,.10);box-shadow:0 0 12px rgba(255,181,71,.18) inset}
+.box.lit .bn,.box.lit .bt,.box.lit .ba{color:var(--amber)}
+.box.rec::before{content:"REC";position:absolute;top:-9px;right:6px;font:500 10px "IBM Plex Mono",monospace;letter-spacing:.1em;background:var(--void);color:var(--green);padding:0 4px;border:1px solid var(--green);border-radius:2px}
+.alt-legend{grid-column:2;font-size:13.5px;color:var(--muted);display:flex;flex-wrap:wrap;gap:4px 18px}
+@media (max-width:700px){
+  .alt{grid-template-columns:1fr}
+  .track{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .alt-legend{grid-column:1}
+}
+
+/* ---------- Treaty clauses ---------- */
+.clauses{padding:6px 18px}
+.clause{display:grid;grid-template-columns:minmax(170px,230px) 1fr auto;gap:8px 20px;align-items:center;padding:14px 4px;border-bottom:1px solid var(--line)}
+.clause:last-child{border-bottom:0}
+.clause h3{font-size:13px;letter-spacing:.12em}
+.clause .desc{font-size:13.5px;color:var(--muted);margin:3px 0 0}
+.clause .cost{font:400 32px/1 "VT323",monospace;color:var(--amber);min-width:52px;text-align:right}
+.clause.off h3,.clause.off .cost{opacity:.4}
+.opts{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center}
+@media (max-width:720px){
+  .clause{grid-template-columns:1fr auto}
+  .clause .opts{grid-column:1/-1;order:3}
+}
+.key{all:unset;cursor:pointer;font:500 12.5px "IBM Plex Mono",monospace;letter-spacing:.06em;text-transform:uppercase;padding:7px 10px;border:1px solid var(--line-2);border-radius:3px;background:linear-gradient(180deg,#16233A,#0E1828);color:var(--ink);display:inline-flex;gap:8px;align-items:baseline;box-shadow:0 2px 0 #060A12}
+.key small{font:400 16px/1 "VT323",monospace;color:var(--muted)}
+.key[aria-pressed="true"]{border-color:var(--cyan);background:var(--cyan-soft);color:var(--cyan);box-shadow:0 0 10px rgba(98,214,234,.25)}
+.key[aria-pressed="true"] small{color:var(--cyan)}
+.key:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+.lamps{display:flex;gap:6px;align-items:center}
+.lamp{all:unset;cursor:pointer;width:26px;height:26px;border-radius:50%;border:1.5px solid var(--line-2);background:radial-gradient(circle at 35% 35%,#1C2A44,#0A1220);display:grid;place-items:center;font:400 14px "VT323",monospace;color:var(--muted)}
+.lamp.on{background:radial-gradient(circle at 35% 35%,#FFD38A,#E08A12);border-color:var(--amber);color:#2A1600;box-shadow:0 0 10px var(--amber-glow)}
+.lamp.selected{outline:2px solid var(--cyan);outline-offset:2px}
+.lamp:disabled{opacity:.3;cursor:default}
+.lamp:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+.bid{font:500 12.5px "IBM Plex Mono",monospace;display:inline-flex;flex-wrap:wrap;gap:2px 14px}
+.side-line{flex-basis:100%;display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;margin-top:4px}
+.side-pick{display:inline-flex;align-items:center;gap:8px}
+.seg{display:inline-flex;border:1px solid var(--line-2);border-radius:3px;overflow:hidden;background:var(--panel)}
+.seg button{font:500 12.5px "IBM Plex Mono",monospace;letter-spacing:.08em;padding:6px 11px;background:transparent;color:var(--muted);border:0;cursor:pointer}
+.seg button[aria-pressed="true"].us{background:var(--us);color:#06101F}
+.seg button[aria-pressed="true"].ussr{background:var(--ussr);color:#1A0603}
+.bid .side-us{color:var(--us)}
+.bid .side-ussr{color:var(--ussr)}
+.order h3 .bid{font-size:14px}
+
+/* ---------- Flight plan, presets, log ---------- */
+.cols{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:24px;align-items:start}
+@media (max-width:840px){.cols{grid-template-columns:1fr}}
+.plan{padding:20px 22px;display:flex;flex-direction:column;gap:14px}
+.plan-head{border-bottom:1px solid var(--line-2);padding-bottom:10px}
+.plan-head h2{font-size:16px;letter-spacing:.14em}
+.order{display:grid;grid-template-columns:auto 1fr;gap:3px 12px}
+.order .tag{grid-row:span 2;font:500 10.5px "IBM Plex Mono",monospace;letter-spacing:.1em;text-transform:uppercase;padding:3px 7px;border-radius:2px;height:fit-content;white-space:nowrap;border:1px solid var(--cyan);color:var(--cyan)}
+.order .tag.doctrine{color:var(--us);border-color:var(--us)}
+.order .tag.deployment{color:var(--ussr);border-color:var(--ussr)}
+.order h3{font:600 16.5px "IBM Plex Sans",sans-serif;letter-spacing:0;text-transform:none}
+.order p{margin:0;font-size:15px;color:var(--body)}
+.actions{display:flex;flex-wrap:wrap;gap:10px;border-top:1px solid var(--line-2);padding-top:12px}
+.btn{font:500 13px "IBM Plex Mono",monospace;letter-spacing:.1em;text-transform:uppercase;padding:10px 14px;border-radius:3px;border:1px solid var(--amber);background:var(--amber);color:#1E1200;cursor:pointer;box-shadow:0 0 14px var(--amber-glow)}
+.btn.us{background:var(--us);border-color:var(--us);color:#06101F;box-shadow:0 0 14px rgba(127,178,240,.35)}
+.btn.ussr{background:var(--ussr);border-color:var(--ussr);color:#1A0603;box-shadow:0 0 14px rgba(255,126,107,.35)}
+.toast{font:500 13px "IBM Plex Mono",monospace;color:var(--green);min-height:1.2em;margin:0}
+.side-panel{display:flex;flex-direction:column;gap:22px}
+.side-panel .console{padding:18px 20px}
+.side-panel h3{font-size:13px;letter-spacing:.14em;margin:4px 0 12px}
+.presets{display:flex;flex-direction:column;gap:8px}
+.preset{all:unset;cursor:pointer;display:flex;justify-content:space-between;gap:10px;padding:9px 12px;border:1px solid var(--line-2);border-radius:3px;background:rgba(5,8,15,.4);font-size:14.5px}
+.preset:hover{border-color:var(--cyan)}
+.preset .alt-value{font:400 20px/1 "VT323",monospace;color:var(--amber);white-space:nowrap}
+.preset:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+.log{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;max-height:320px;overflow:auto}
+.log li{display:grid;grid-template-columns:auto 1fr auto;gap:10px;font-size:14px;padding:7px 0;border-bottom:1px solid var(--line)}
+.log .result{font:500 11px "IBM Plex Mono",monospace;letter-spacing:.08em;padding:2px 6px;border-radius:2px;height:fit-content;border:1px solid currentColor}
+.log .result.win{color:var(--green)}
+/* .log .result.loss{color:var(--muted)} */
+/* .log .result.loss{color:var(--us)} */
+.log .result.loss{color:#44d2eb}  /* Working out a color for losses to make them feel less like a failure and more like a record of progress. */
+.log .alt-value{font:400 20px/1 "VT323",monospace;color:var(--amber)}
+.log .date{color:var(--dim);font-size:12.5px}
+.empty{color:var(--muted);font-style:italic;font-size:14px;margin:0}
+.linkbtn{all:unset;cursor:pointer;font:500 12px "IBM Plex Mono",monospace;color:var(--muted);text-decoration:underline;width:fit-content;margin-top:8px}
+
+/* ---------- Fine print ---------- */
+.fine{padding:22px 24px;display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:22px 32px}
+.fine section{display:flex;flex-direction:column;gap:6px}
+.fine h3{font-size:12.5px;letter-spacing:.14em;color:var(--cyan)}
+.fine p,.fine li{font-size:15px;margin:0;color:var(--body)}
+.fine ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px}
+.fine .note{color:var(--muted);font-size:14px}
+footer{font-size:13px;color:var(--muted);border-top:1px solid var(--line);padding-top:14px;max-width:85ch}
+footer a{color:var(--cyan)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<canvas id="sky" aria-hidden="true"></canvas>
+
+<div class="wrap">
+  <header>
+    <span class="eyebrow">Twilight Struggle · difficulty progression</span>
+    <h1>Outer Space Treaty</h1>
+    <p id="intro"></p>
+  </header>
+
+  <section class="console alt" aria-label="Altitude">
+    <div class="readout">
+      <span class="lbl">ALTITUDE</span>
+      <span class="num" id="altitude-number">03</span>
+      <span class="of" id="altitude-goal"></span>
+    </div>
+    <div class="track" id="space-race-track"></div>
+    <div class="alt-legend"><span id="legend-record"></span><span id="legend-even"></span></div>
+  </section>
+
+  <section class="console clauses" id="clauses" aria-label="Treaty clauses"></section>
+
+  <section class="cols">
+    <div class="console plan" id="flight-plan" aria-live="polite"></div>
+    <div class="side-panel">
+      <div class="console">
+        <span class="eyebrow">Flight plans</span>
+        <h3>One and two above the record</h3>
+        <div class="presets" id="presets"></div>
+      </div>
+      <div class="console">
+        <span class="eyebrow">Mission log</span>
+        <h3>Games flown</h3>
+        <ul class="log" id="log"></ul>
+        <button class="linkbtn" id="clear-log">Clear log</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="console fine" id="fine-print" aria-label="Fine print"></section>
+
+  <footer id="footer"></footer>
+</div>
+
+<script>
+/* =====================================================================
+   CONFIG: the only part that differs between editions.
+   ===================================================================== */
+const CONFIG = {
+  veteran: "The veteran",
+  veteranMid: "the veteran",
+  veteranPossessiveName: "The veteran's",
+  player: "you",
+  playerPossessive: "your",
+  playerWonLabel: "You won",
+  veteranWonLabel: "The veteran won",
+  sidePrefix: "As",
+  arsenalSideToggle: true,
+  sideToggleLabel: "You are",
+  arsenalDescription: "The veteran's starting influence handicap.",
+  altitudeOverrides: {"loyalist": 6, "maverick": 11},
+  arsenalNote: "The extra influence is placed during setup, in countries eligible for setup influence.",
+  logSidePrefix: "you were",
+  intro: "The veteran starts every game bound by every clause in this treaty. Each clause you strike raises the mission's Altitude. Pick any terms, win, and push your record toward the Space Station.",
+  finePrint: ["breaches", "waivers", "scoringCall"],
+  designNotes: false,
+  storagePrefix: "ost-friend-v2-",
+  footer: "Your log is saved in this browser only."
+};
+
+/* =====================================================================
+   PRICES: Altitude cost of each clause. Base 0 is the tightest treaty:
+   Historian, veteran 4 influence down, open hand, scoring call in force.
+   ===================================================================== */
+const RESTRICTIONS = [
+  { id: "historian",   name: "Historian",   altitude: 0,  doctrine: true  },
+  { id: "loyalist",    name: "Loyalist",    altitude: 7,  doctrine: true  },
+  { id: "garrison",    name: "Garrison",    altitude: 8,  doctrine: false },
+  { id: "maverick",    name: "Maverick",    altitude: 9,  doctrine: true  },
+  { id: "overstretch", name: "Overstretch", altitude: 14, doctrine: false },
+  { id: "unbound",     name: "Unbound",     altitude: 18, doctrine: false },
+];
+// An edition can adjust individual prices (CONFIG.altitudeOverrides); the list stays in cost order.
+for (const r of RESTRICTIONS) if (CONFIG.altitudeOverrides && r.id in CONFIG.altitudeOverrides) r.altitude = CONFIG.altitudeOverrides[r.id];
+RESTRICTIONS.sort((a, b) => a.altitude - b.altitude);
+const WAIVER_COST = [0, 2, 3, 4];   // total cost for 0, 1, 2, 3 waivers: the first is pricier
+const CLOSED_HAND_COST = 1;
+// Scoring call: 0 = in force, 1 = delay only (no "must play it"), 2 = revoked.
+const SCORING_CALL_LEVELS = [
+  { name: "In force",   cost: 0 },
+  { name: "Delay only", cost: 1 },
+  { name: "Revoked",    cost: 2 },
+];
+const STANDARD_US_BID = 2;
+// Arsenal runs 0..8. Each step moves 1 starting influence toward the veteran
+// and costs 1 Altitude. Step 4 is the standard bid.
+const ARSENAL_MAX_STEP = 8;
+const ARSENAL_STANDARD_STEP = 4;
+const SPACE_RACE_BOXES = ["Earth Satellite", "Animal in Space", "Man in Space", "Man in Earth Orbit",
+                          "Lunar Orbit", "Eagle/Bear Has Landed", "Space Shuttle", "Space Station"];
+
+/* =====================================================================
+   Text: rules written with the names from CONFIG.
+   ===================================================================== */
+const V   = CONFIG.veteran;          // "YourName" or "The veteran", sentence start
+const v   = CONFIG.veteranMid;       // same, mid-sentence
+const VP  = "their";                 // the veteran's pronouns, could move this to CONFIG if needed
+const VO  = "them";
+const VS  = "they";
+const P   = CONFIG.player;           // "you" / "the new player"
+const PP  = CONFIG.playerPossessive; // "your" / "the new player's"
+const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
+
+const RULE_TEXT = {
+  historian:   `${V} must play ${VP} own and neutral cards for their events in action rounds whenever Playdek offers the Event option, even if the event does little. ${cap(VS)} may use them on the Space Race instead.`,
+  loyalist:    `As Historian, but only for ${VP} own side's cards. Neutral cards are unrestricted.`,
+  maverick:    `As Loyalist, but ${VS} may instead spend all of the card's Ops on Realignment rolls. Realignment is swingy: a lucky roll can strip a lot of influence at once.`,
+  garrison:    `If an Ops play places 2 or more influence, one of them must go in ${VP} garrison: Australia as the US, North Korea as the USSR.`,
+  overstretch: `If an Ops play places 2 or more influence, they can't all go in battlegrounds.`,
+  unbound:     `${V} plays normally.`,
+};
+const SCORING_CALL_TEXT = [
+  `Once this game, ${P} can name a scoring card. If ${v} holds it, ${PP} choice: ${VS} must play it on ${VP} next action round, or can't play it then.`,
+  `Once this game, ${P} can name a scoring card. If ${v} holds it, ${VS} can't play it on ${VP} next action round.`,
+  `No scoring call this game.`,
+];
+
+const FINE_PRINT = {
+  howToFly: { title: "How to fly it", html: `<ul>
+      <li>Start around Altitude 4: Historian at the standard bid. The first few games tell you more than any estimate.</li>
+      <li>Any terms at the same Altitude are meant to be fair swaps. If one build keeps beating another, a price is wrong.</li>
+      <li>After a win, go one or two higher. After a loss, drop one or try different terms at the same level.</li></ul>` },
+  breaches: { title: "Breaches", html: `<p>If ${v} breaks a clause for any reason, ${VP} next 2 cards played for Ops must be used entirely to place influence in a country of ${PP} choice. This can include the breaching card, if ${VS} announce it before playing it.</p>` +
+      (CONFIG.designNotes ? `<p class="note">Design note: costing two cards is what stops a breach from working as a free extra Space Race slot for bad events.</p>` : "") },
+  waivers: { title: "Waivers", html: `<p>Waivers only work with Historian, Loyalist or Maverick. Each one lets ${v} play one card as if the restriction weren't there, with no breach penalty, and is announced when spent. The first adds 2 Altitude instead of 1.</p>` },
+  scoringCall: { title: "Scoring call", html: `<p>Once per game, ${P} can name a scoring card while holding priority. If ${v} holds it, ${PP} choice: ${VS} must play it on ${VP} next action round, or can't play it then. ${V} answers truthfully even when the card isn't in hand. The delay doesn't apply if it would leave ${VO} holding the card at the end of the turn. A treaty clause can cut the call down to the delay only, or revoke it.</p>` },
+  eventRulings: { title: "\"Can be played as an event\"", html: `<p>This means Playdek offers the Event option. Gated cards, like <i>Kitchen Debates</i> without the battleground lead or <i>NATO</i> before Marshall or Warsaw, can be played for Ops. <i>Defectors</i> can't be evented in a US action round. Cards with no gate, like <i>Independent Reds</i> with no target, must still be evented.</p>` },
+};
+
+/* =====================================================================
+   State: the build being edited, and the log of games played.
+   Both live in this browser's localStorage, which can be unavailable,
+   so every access is wrapped.
+   ===================================================================== */
+const storage = {
+  get(key, fallback) {
+    try { const raw = localStorage.getItem(key); return raw === null ? fallback : JSON.parse(raw); }
+    catch (e) { return fallback; }
+  },
+  set(key, value) {
+    try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* not saved; page still works */ }
+  },
+};
+const KEY = CONFIG.storagePrefix;
+const DEFAULT_BUILD = { restriction: "historian", waivers: 0, arsenal: ARSENAL_STANDARD_STEP, closedHand: false, callLevel: 0 };
+
+let build = Object.assign({}, DEFAULT_BUILD, storage.get(KEY + "build", {}));
+let gameLog = storage.get(KEY + "log", []);
+let playerSide = storage.get(KEY + "side", "US");   // which side the new player is on; only affects how the bid reads
+function save() { storage.set(KEY + "build", build); storage.set(KEY + "log", gameLog); storage.set(KEY + "side", playerSide); }
+
+/* =====================================================================
+   Calculations
+   ===================================================================== */
+const restrictionById = id => RESTRICTIONS.find(r => r.id === id) || RESTRICTIONS[0];
+
+function altitudeOf(b) {
+  return restrictionById(b.restriction).altitude
+       + WAIVER_COST[b.waivers]
+       + b.arsenal
+       + (b.closedHand ? CLOSED_HAND_COST : 0)
+       + SCORING_CALL_LEVELS[b.callLevel].cost;
+}
+// An even game: no restriction, standard bid, closed hand, no scoring call.
+const EVEN_GAME = RESTRICTIONS.find(r => r.id === "unbound").altitude + ARSENAL_STANDARD_STEP + CLOSED_HAND_COST
+                + SCORING_CALL_LEVELS[SCORING_CALL_LEVELS.length - 1].cost;
+
+function bidText(usBid) { return usBid >= 0 ? `US +${usBid}` : `USSR +${-usBid}`; }
+// The Arsenal shift moves influence toward the veteran. Shown from the new player's side,
+// colored by that side: as the US they face a USSR veteran, and the reverse.
+function bidSummary(b, labeled = false) {
+  const shift = b.arsenal - ARSENAL_STANDARD_STEP;
+  const asUS = bidText(STANDARD_US_BID - shift), asUSSR = bidText(STANDARD_US_BID + shift);
+  if (CONFIG.arsenalSideToggle)
+  {
+    const label = labeled ? `${CONFIG.sidePrefix} ${playerSide}: ` : "";
+    return playerSide === "US" ? `<span class="side-us">${label}${asUS}</span>` : `<span class="side-ussr">${label}${asUSSR}</span>`;
+  }
+  return `<span class="side-us">${CONFIG.sidePrefix} US: ${asUS}</span>`
+       + `<span class="side-ussr">${CONFIG.sidePrefix} USSR: ${asUSSR}</span>`;
+}
+function arsenalLabel(b) {
+  const shift = b.arsenal - ARSENAL_STANDARD_STEP;
+  return `Arsenal ${shift > 0 ? "+" : ""}${shift}`;
+}
+function buildLabel(b) {
+  const parts = [restrictionById(b.restriction).name];
+  if (b.waivers) parts.push(`${b.waivers} waiver${b.waivers > 1 ? "s" : ""}`);
+  parts.push(arsenalLabel(b));
+  if (b.closedHand) parts.push("closed hand");
+  if (b.callLevel === 1) parts.push("delay-only call");
+  if (b.callLevel === 2) parts.push("no scoring call");
+  return parts.join(" · ");
+}
+function bestWin() {
+  return gameLog.filter(g => g.won).reduce((best, g) => Math.max(best, g.altitude), -1);
+}
+function boxThreshold(index) { return Math.ceil(EVEN_GAME * (index + 1) / SPACE_RACE_BOXES.length); }
+const pad2 = n => String(n).padStart(2, "0");
+const $ = id => document.getElementById(id);
+
+/* =====================================================================
+   Rendering
+   ===================================================================== */
+function renderAltimeter() {
+  const altitude = altitudeOf(build), record = bestWin();
+  $("altitude-number").textContent = pad2(altitude);
+  $("altitude-goal").textContent = altitude >= EVEN_GAME + 99 ? `STATION +${altitude - EVEN_GAME}` : `/ ${EVEN_GAME} TO STATION`;
+  let recordBox = -1;
+  SPACE_RACE_BOXES.forEach((_, i) => { if (record >= boxThreshold(i)) recordBox = i; });
+  $("space-race-track").innerHTML = SPACE_RACE_BOXES.map((name, i) => `
+    <div class="box${altitude >= boxThreshold(i) ? " lit" : ""}${i === recordBox ? " rec" : ""}">
+      <span class="bn">${i + 1}</span><span class="bt">${name}</span><span class="ba">ALT ${boxThreshold(i)}</span>
+    </div>`).join("");
+  $("legend-record").textContent = record >= 0 ? `Record: Altitude ${record}` : "No wins logged yet";
+  $("legend-even").textContent = `An even game is Altitude ${EVEN_GAME}`;
+}
+
+function clauseRow(title, description, controls, cost, inactive) {
+  return `<div class="clause${inactive ? " off" : ""}">
+      <div><h3>${title}</h3><p class="desc">${description}</p></div>
+      <div class="opts">${controls}</div>
+      <div class="cost">+${cost}</div>
+    </div>`;
+}
+
+function renderClauses() {
+  const restriction = restrictionById(build.restriction);
+  const restrictionKeys = RESTRICTIONS.map(r =>
+    `<button class="key" data-restriction="${r.id}" aria-pressed="${build.restriction === r.id}">${r.name}<small>+${r.altitude}</small></button>`).join("");
+  const waiverLamps = [1, 2, 3].map(n =>
+    `<button class="lamp ${n <= build.waivers ? "on" : ""}" data-waivers="${n}" ${restriction.doctrine ? "" : "disabled"} aria-label="${n} waiver${n > 1 ? "s" : ""}">${n}</button>`).join("");
+  const sideToggle = CONFIG.arsenalSideToggle
+    ? `<span class="side-pick"><span class="eyebrow">${CONFIG.sideToggleLabel}</span>
+         <span class="seg" role="group" aria-label="${CONFIG.sideToggleLabel}">
+           <button class="us" data-side="US" aria-pressed="${playerSide === "US"}">US</button><button class="ussr" data-side="USSR" aria-pressed="${playerSide === "USSR"}">USSR</button>
+         </span></span>`
+    : "";
+  const callKeys = SCORING_CALL_LEVELS.map((level, i) =>
+    `<button class="key" data-call="${i}" aria-pressed="${build.callLevel === i}">${level.name}<small>+${level.cost}</small></button>`).join("");
+  const arsenalSteps = Array.from({ length: ARSENAL_MAX_STEP + 1 }, (_, step) => step);
+  const arsenalLamps = arsenalSteps.map(step => {
+    const shift = step - ARSENAL_STANDARD_STEP;
+    return `<button class="lamp ${step <= build.arsenal ? "on" : ""} ${step === build.arsenal ? "selected" : ""}" data-arsenal="${step}" aria-label="Influence shift ${shift}">${shift > 0 ? "+" : ""}${shift}</button>`;
+  }).join("");
+
+  const arsenalControls = `<div class="lamps">${arsenalLamps}</div><div class="side-line">${sideToggle}<span class="bid">${bidSummary(build)}</span></div>`;
+
+  $("clauses").innerHTML = [
+    clauseRow("Restriction", `${cap(CONFIG.veteranPossessiveName)} play pattern. Pick one!`, restrictionKeys, restriction.altitude, false),
+    clauseRow("Waivers", "Single-card exemptions from a doctrine restriction. The first adds 2 Altitude.",
+              `<div class="lamps">${waiverLamps}</div>`, WAIVER_COST[build.waivers], !restriction.doctrine),
+    clauseRow("Arsenal", CONFIG.arsenalDescription, arsenalControls, build.arsenal, false),
+    clauseRow("Closed hand", `Hide ${CONFIG.veteranPossessiveName} hand.`,
+              `<button class="key" id="toggle-hand" aria-pressed="${build.closedHand}">${build.closedHand ? "Hidden" : "Open"}<small>+${CLOSED_HAND_COST}</small></button>`,
+              build.closedHand ? CLOSED_HAND_COST : 0, false),
+    clauseRow("Scoring call", `Weaken or revoke ${PP} once-per-game scoring call.`, callKeys,
+              SCORING_CALL_LEVELS[build.callLevel].cost, false),
+  ].join("");
+
+  document.querySelectorAll("[data-restriction]").forEach(btn => btn.onclick = () => {
+    build.restriction = btn.dataset.restriction;
+    if (!restrictionById(build.restriction).doctrine) build.waivers = 0;
+    update();
+  });
+  document.querySelectorAll("[data-waivers]").forEach(btn => btn.onclick = () => {
+    const n = Number(btn.dataset.waivers);
+    build.waivers = build.waivers === n ? n - 1 : n;   // clicking the top lit lamp turns it off
+    update();
+  });
+  document.querySelectorAll("[data-arsenal]").forEach(btn => btn.onclick = () => { build.arsenal = Number(btn.dataset.arsenal); update(); });
+  $("toggle-hand").onclick = () => { build.closedHand = !build.closedHand; update(); };
+  document.querySelectorAll("[data-side]").forEach(btn => btn.onclick = () => { playerSide = btn.dataset.side; update(); });
+  document.querySelectorAll("[data-call]").forEach(btn => btn.onclick = () => { build.callLevel = Number(btn.dataset.call); update(); });
+}
+
+function order(tagClass, tag, heading, text) {
+  return `<div class="order"><span class="tag ${tagClass}">${tag}</span><h3>${heading}</h3><p>${text}</p></div>`;
+}
+
+function renderFlightPlan() {
+  const restriction = restrictionById(build.restriction);
+  const orders = [];
+  if (restriction.id === "unbound") orders.push(order("", "Unbound", "No restriction", RULE_TEXT.unbound));
+  else orders.push(order(restriction.doctrine ? "doctrine" : "deployment", restriction.doctrine ? "Doctrine" : "Deployment", restriction.name, RULE_TEXT[restriction.id]));
+  if (build.waivers) orders.push(order("", "Waivers", `${build.waivers} waiver${build.waivers > 1 ? "s" : ""}`, "Each one ignores the restriction for one card play, with no breach penalty. Announced when spent."));
+  orders.push(order("", "Arsenal", `<span class="bid">${bidSummary(build, true)}</span>`, CONFIG.arsenalNote));
+  orders.push(order("", "Hand", build.closedHand ? "Closed hand" : "Open hand",
+    build.closedHand ? "Hidden." : "Face up, with choices talked through out loud."));
+  orders.push(order("", "Scoring call", SCORING_CALL_LEVELS[build.callLevel].name, SCORING_CALL_TEXT[build.callLevel]));
+
+  $("flight-plan").innerHTML = `
+    <div class="plan-head"><h2>Flight plan · Alt ${altitudeOf(build)}</h2></div>
+    ${orders.join("")}
+    <div class="actions">
+      <button class="btn ${playerSide === "US" ? "us" : "ussr"}" id="log-win">${CONFIG.playerWonLabel}</button>
+      <button class="btn ${playerSide === "US" ? "ussr" : "us"}" id="log-loss">${CONFIG.veteranWonLabel}</button>
+    </div>
+    <p class="toast" id="toast"></p>`;
+
+  const logGame = won => {
+    const previousRecord = bestWin(), altitude = altitudeOf(build);
+    gameLog.unshift({ altitude, won, side: playerSide, label: buildLabel(build), date: new Date().toISOString().slice(0, 10) });
+    update();
+    $("toast").textContent = won
+      ? (altitude > previousRecord ? `New record: Altitude ${altitude}.` : "Win logged.")
+      : "Loss logged. Try one lower, or different terms at this level.";
+  };
+  $("log-win").onclick = () => logGame(true);
+  $("log-loss").onclick = () => logGame(false);
+}
+
+// Every possible build, used to suggest a few at the next Altitudes up.
+function allBuilds() {
+  const builds = [];
+  for (const r of RESTRICTIONS)
+    for (const waivers of (r.doctrine ? [0, 1, 2, 3] : [0]))
+      for (let arsenal = 0; arsenal <= ARSENAL_MAX_STEP; arsenal++)
+        for (const closedHand of [false, true])
+          for (const callLevel of [0, 1, 2])
+            builds.push({ restriction: r.id, waivers, arsenal, closedHand, callLevel });
+  return builds;
+}
+function renderPresets() {
+  const base = Math.max(bestWin(), 2);
+  const rankOf = id => RESTRICTIONS.findIndex(r => r.id === id);
+  let html = "";
+  for (const target of [base + 1, base + 2]) {
+    const seen = new Set(), picks = [];
+    allBuilds()
+      .filter(b => altitudeOf(b) === target)
+      // Prefer looser restrictions, then fewer extras, then a bid near standard.
+      .sort((a, b) => (rankOf(b.restriction) - rankOf(a.restriction))
+                   || (a.callLevel - b.callLevel) || (a.closedHand - b.closedHand)
+                   || (Math.abs(a.arsenal - ARSENAL_STANDARD_STEP) - Math.abs(b.arsenal - ARSENAL_STANDARD_STEP)))
+      .forEach(b => {
+        const kind = [b.restriction, b.waivers > 0, b.closedHand, b.callLevel].join("|");
+        if (!seen.has(kind) && picks.length < 3) { seen.add(kind); picks.push(b); }
+      });
+    for (const b of picks)
+      html += `<button class="preset" data-preset='${JSON.stringify(b)}'><span>${buildLabel(b)}</span><span class="alt-value">${pad2(target)}</span></button>`;
+  }
+  $("presets").innerHTML = html || '<p class="empty">No plans at those altitudes.</p>';
+  document.querySelectorAll("[data-preset]").forEach(btn => btn.onclick = () => {
+    build = JSON.parse(btn.dataset.preset);
+    update();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  });
+}
+
+function renderLog() {
+  $("log").innerHTML = gameLog.length
+    ? gameLog.map(g => `<li>
+        <span class="result ${g.won ? "win" : "loss"}">${g.won ? "WIN" : "LOSS"}</span>
+        <span>${g.label}<br><span class="date">${g.date}${g.side ? ` · ${CONFIG.logSidePrefix} ${g.side}` : ""}</span></span>
+        <span class="alt-value">${pad2(g.altitude)}</span></li>`).join("")
+    : '<p class="empty">No games logged yet.</p>';
+}
+
+function renderStaticText() {
+  $("intro").textContent = CONFIG.intro;
+  $("fine-print").innerHTML = CONFIG.finePrint
+    .map(key => `<section><h3>${FINE_PRINT[key].title}</h3>${FINE_PRINT[key].html}</section>`).join("");
+  $("footer").innerHTML = CONFIG.footer;
+}
+
+function update() {
+  save();
+  renderAltimeter();
+  renderClauses();
+  renderFlightPlan();
+  renderPresets();
+  renderLog();
+}
+
+// "Clear log" asks for a second click instead of a dialog.
+let clearArmed = false;
+$("clear-log").onclick = () => {
+  const btn = $("clear-log");
+  if (!clearArmed) {
+    clearArmed = true;
+    btn.textContent = "Click again to clear the log";
+    setTimeout(() => { clearArmed = false; btn.textContent = "Clear log"; }, 4000);
+    return;
+  }
+  clearArmed = false;
+  btn.textContent = "Clear log";
+  gameLog = [];
+  update();
+};
+
+renderStaticText();
+update();
+</script>
+
+<script>
+/* =====================================================================
+   Starfield: random stars with a slow twinkle and two faint nebula
+   glows. Static when the viewer prefers reduced motion.
+   ===================================================================== */
+(function () {
+  const canvas = document.getElementById("sky"), ctx = canvas.getContext("2d");
+  const reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let stars = [], nebulae = [], width = 0, height = 0;
+
+  function seed() {
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    width = window.innerWidth; height = window.innerHeight;
+    canvas.width = width * dpr; canvas.height = height * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const count = Math.round(width * height / 1260);
+    stars = Array.from({ length: count }, () => {
+      const r = Math.random();
+      return {
+        x: Math.random() * width, y: Math.random() * height,
+        size: r < .92 ? Math.random() * .9 + .3 : Math.random() * 1.4 + 1,
+        alpha: Math.random() * .6 + .25,
+        phase: Math.random() * Math.PI * 2, speed: Math.random() * .8 + .2,
+        rgb: r > .97 ? "255,200,150" : r > .94 ? "170,210,255" : "235,240,255",  // a few warm and cool stars
+      };
+    });
+    const big = Math.max(width, height);
+    nebulae = [{ x: width * .82, y: height * .18, r: big * .45, rgb: "60,90,270" },
+               { x: width * .12, y: height * .85, r: big * .40, rgb: "20,96,110" }];
+  }
+
+  function draw(time) {
+    ctx.clearRect(0, 0, width, height);
+    for (const n of nebulae) {
+      const g = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, n.r);
+      g.addColorStop(0, `rgba(${n.rgb},0.16)`); g.addColorStop(1, `rgba(${n.rgb},0)`);
+      ctx.fillStyle = g; ctx.fillRect(0, 0, width, height);
+    }
+    for (const s of stars) {
+      const twinkle = reduceMotion ? 1 : .25 + .75 * Math.sin(s.phase + time * .0012 * s.speed);
+      ctx.fillStyle = `rgba(${s.rgb},${s.alpha * twinkle})`;
+      ctx.beginPath(); ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2); ctx.fill();
+    }
+    if (!reduceMotion) requestAnimationFrame(draw);
+  }
+
+  seed();
+  requestAnimationFrame(draw);
+  window.addEventListener("resize", () => { seed(); if (reduceMotion) draw(0); });
+})();
+</script>
+
+</body></html>
